@@ -32,7 +32,7 @@ def setup_firebase():
     if 'db' not in st.session_state:
         try:
             # Leer las credenciales de Streamlit Secrets
-            firebase_config = json.loads(st.secrets["firebase_key"])
+            firebase_config = st.secrets["firebase_key"]
             app_id = st.secrets["app_id"]
 
             if not _apps:
