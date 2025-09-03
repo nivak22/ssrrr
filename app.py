@@ -31,7 +31,6 @@ def today_spanish_day() -> str:
 def setup_firebase():
     if 'db' not in st.session_state:
         try:
-            # Leer las credenciales desde Streamlit Secrets (string JSON)
             firebase_key_str = st.secrets["firebase_key"]
             firebase_dict = json.loads(firebase_key_str)
             app_id = st.secrets["app_id"]
@@ -135,11 +134,19 @@ def create_dashboard(df, all_goals):
             pax=('meta_reservation_persons', 'sum')
         ).reset_index()
 
-        pivot_rsv = conteo_pax.pivot_table(index='establecimiento_sede', columns='fecha_formato', values='rsv', fill_value=0).reindex(columns=formatted_dates)
-        pivot_pax = conteo_pax.pivot_table(index='establecimiento_sede', columns='fecha_formato', values='pax', fill_value=0).reindex(columns=formatted_dates)
+        pivot_rsv = conteo_pax.pivot_table(
+            index='establecimiento_sede',
+            columns='fecha_formato',
+            values='rsv',
+            fill_value=0
+        ).reindex(columns=formatted_dates).fillna(0).astype(int)
 
-        pivot_rsv = pivot_rsv.astype(int)
-        pivot_pax = pivot_pax.astype(int)
+        pivot_pax = conteo_pax.pivot_table(
+            index='establecimiento_sede',
+            columns='fecha_formato',
+            values='pax',
+            fill_value=0
+        ).reindex(columns=formatted_dates).fillna(0).astype(int)
 
         daily_goals_matrix = all_goals if isinstance(all_goals, dict) else {}
 
