@@ -3,3 +3,5 @@ pandas
 numpy
 plotly
 openpyxl
+firebase-admin
+google-cloud-firestore
