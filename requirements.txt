@@ -1,3 +1,5 @@
 streamlit
 pandas
-firebase-admin
+numpy
+plotly
+openpyxl
