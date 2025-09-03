@@ -28,6 +28,7 @@ def today_spanish_day() -> str:
     return SPANISH_DAYS[datetime.now().weekday()]
 
 # --- Inicialización de Firebase ---
+@st.cache_resource
 def setup_firebase():
     if 'db' not in st.session_state:
         try:
