@@ -21,7 +21,6 @@ def format_date_es(d: datetime.date) -> str:
     return f"{day}, {d.day:02d} de {month}"
 
 def day_from_formatted(col_label: str) -> str:
-    # "miercoles, 03 de septiembre" -> "miercoles"
     return col_label.split(",", 1)[0].strip().lower()
 
 def today_spanish_day() -> str:
@@ -32,12 +31,13 @@ def today_spanish_day() -> str:
 def setup_firebase():
     if 'db' not in st.session_state:
         try:
-            # Leer las credenciales de Streamlit Secrets
-            firebase_config = st.secrets["firebase_key"]
+            # Leer las credenciales desde Streamlit Secrets (string JSON)
+            firebase_key_str = st.secrets["firebase_key"]
+            firebase_dict = json.loads(firebase_key_str)
             app_id = st.secrets["app_id"]
 
             if not _apps:
-                cred = credentials.Certificate(firebase_config)
+                cred = credentials.Certificate(firebase_dict)
                 initialize_app(cred)
 
             db = firestore.client()
@@ -119,7 +119,6 @@ def create_dashboard(df, all_goals):
 
     today = datetime.now().date()
     date_range = [today + timedelta(days=i) for i in range(7)]
-
     formatted_dates = [format_date_es(d) for d in date_range]
 
     df_filtrado = df[
@@ -153,16 +152,7 @@ def create_dashboard(df, all_goals):
         st.header("Tablero de Reservas Asignadas (Próximos 7 días)")
         st.write("RSV: número de reservas | PAX: total de personas.")
 
-        styled_df = final_df_display.style.apply(apply_style_pax, axis=None, daily_goals_matrix=daily_goals_matrix).set_table_styles([
-            {'selector': 'th.col_heading.level0:nth-child(2)', 'props': [('border-right', '2px solid black')]},
-            {'selector': 'th.col_heading.level0:nth-child(3)', 'props': [('border-right', '2px solid black')]},
-            {'selector': 'th.col_heading.level0:nth-child(4)', 'props': [('border-right', '2px solid black')]},
-            {'selector': 'th.col_heading.level0:nth-child(5)', 'props': [('border-right', '2px solid black')]},
-            {'selector': 'th.col_heading.level0:nth-child(6)', 'props': [('border-right', '2px solid black')]},
-            {'selector': 'th.col_heading.level0:nth-child(7)', 'props': [('border-right', '2px solid black')]},
-            {'selector': 'th.col_heading.level0:nth-child(8)', 'props': [('border-right', '2px solid black')]},
-        ])
-        
+        styled_df = final_df_display.style.apply(apply_style_pax, axis=None, daily_goals_matrix=daily_goals_matrix)
         st.dataframe(styled_df, use_container_width=True)
 
     else:
