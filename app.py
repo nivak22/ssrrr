@@ -68,10 +68,18 @@ def load_and_process_data(uploaded_file):
         branch_col = 'establishment_branch_address'
         if establishment_col in df.columns and branch_col in df.columns:
             df['establecimiento_sede'] = df[establishment_col] + ' - ' + df[branch_col]
-            st.session_state.establecimientos_list = sorted(df['establecimiento_sede'].unique())
+            new_estabs = sorted(df['establecimiento_sede'].unique())
+
+            # --- Cambio: unir con los existentes en lugar de sobrescribir ---
+            if "establecimientos_list" in st.session_state:
+                all_estabs = set(st.session_state.establecimientos_list) | set(new_estabs)
+                st.session_state.establecimientos_list = sorted(all_estabs)
+            else:
+                st.session_state.establecimientos_list = new_estabs
         else:
             st.warning("Las columnas 'establishment_name' o 'establishment_branch_address' no se encontraron. La gestión de metas podría no funcionar correctamente.")
-            st.session_state.establecimientos_list = []
+            if "establecimientos_list" not in st.session_state:
+                st.session_state.establecimientos_list = []
 
         st.success("Archivo cargado exitosamente.")
         st.write("Vista previa de los datos cargados:")
@@ -168,10 +176,6 @@ def create_dashboard(df, all_goals):
 def metas_page(db, app_id):
     st.header("Gestión de Metas Diarias")
 
-    if 'establecimientos_list' not in st.session_state or not st.session_state.establecimientos_list:
-        st.warning("Por favor, sube un archivo de reservas primero para obtener la lista de establecimientos.")
-        return
-
     dias_semana_full = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
     selected_day_to_edit = st.selectbox("Selecciona el día para el cual quieres establecer las metas de la semana:", dias_semana_full)
 
@@ -180,7 +184,11 @@ def metas_page(db, app_id):
 
     current_goals = doc.to_dict() if doc.exists else {}
 
-    establecimientos = st.session_state.establecimientos_list
+    # --- Cambio: unir establecimientos de Firebase con los de sesión ---
+    firebase_estabs = list(current_goals.keys())
+    session_estabs = st.session_state.get("establecimientos_list", [])
+    establecimientos = sorted(set(firebase_estabs) | set(session_estabs))
+
     metas_df = pd.DataFrame(index=establecimientos)
 
     for day in dias_semana_full:
