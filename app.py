@@ -137,10 +137,8 @@ def create_dashboard(df, all_goals):
         (df['status'] == 'Asignado') & (df['meta_reservation_date'].dt.date.isin(date_range))
     ].copy()
 
-    # Obtener la lista completa de establecimientos de la sesión
     all_establishments = st.session_state.get('establecimientos_list', [])
     
-    # Crear DataFrames vacíos para RSV y PAX con todos los establecimientos como índice
     pivot_rsv = pd.DataFrame(0, index=all_establishments, columns=formatted_dates)
     pivot_pax = pd.DataFrame(0, index=all_establishments, columns=formatted_dates)
 
@@ -153,7 +151,6 @@ def create_dashboard(df, all_goals):
             pax=('meta_reservation_persons', 'sum')
         ).reset_index()
 
-        # Llenar los DataFrames de RSV y PAX con los datos del archivo
         for _, row in conteo_pax.iterrows():
             est = row['establecimiento_sede']
             date = row['fecha_formato']
@@ -226,14 +223,20 @@ page_selection = st.sidebar.radio("Navegación", ["Análisis de Reservas", "Gest
 if page_selection == "Análisis de Reservas":
     st.header("1. Carga tu archivo de reservas")
     st.write("Carga el archivo de reservas para generar el tablero. Se admiten formatos CSV y XLSX.")
+    
+    # Manejo del archivo subido y la persistencia del DataFrame
     uploaded_file = st.file_uploader("Elige un archivo", type=["csv", "xlsx"])
     if uploaded_file is not None:
+        # Si se sube un nuevo archivo, procesarlo y guardarlo en la sesión
         st.session_state.uploaded_file_name = uploaded_file.name
         st.session_state.df = load_and_process_data(uploaded_file)
-        if 'df' in st.session_state and st.session_state.df is not None:
-            create_dashboard(st.session_state.df, fetch_goals(app_id))
+    
+    # Si el DataFrame ya existe en la sesión, mostrar el dashboard
+    if 'df' in st.session_state and st.session_state.df is not None:
+        create_dashboard(st.session_state.df, fetch_goals(app_id))
     else:
         st.info("Sube un archivo para ver el tablero.")
+        
 elif page_selection == "Gestión de Metas":
     if db and app_id:
         metas_page(db, app_id)
