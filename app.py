@@ -141,37 +141,41 @@ def create_dashboard(df, all_goals):
             rsv=('status', 'size'),
             pax=('meta_reservation_persons', 'sum')
         ).reset_index()
-
-        pivot_rsv = conteo_pax.pivot_table(
-            index='establecimiento_sede',
-            columns='fecha_formato',
-            values='rsv',
-            fill_value=0
-        ).reindex(columns=formatted_dates).fillna(0).astype(int)
-
-        pivot_pax = conteo_pax.pivot_table(
-            index='establecimiento_sede',
-            columns='fecha_formato',
-            values='pax',
-            fill_value=0
-        ).reindex(columns=formatted_dates).fillna(0).astype(int)
-
-        daily_goals_matrix = all_goals if isinstance(all_goals, dict) else {}
-
-        combined_df = pd.concat({'RSV': pivot_rsv, 'PAX': pivot_pax}, axis=1)
-        combined_df = combined_df.swaplevel(axis=1).sort_index(axis=1)
-
-        final_df_display = combined_df.reindex(columns=pd.MultiIndex.from_product([formatted_dates, ['RSV', 'PAX']]))
-
-        st.markdown("---")
-        st.header("Tablero de Reservas Asignadas (Próximos 7 días)")
-        st.write("RSV: número de reservas | PAX: total de personas.")
-
-        styled_df = final_df_display.style.apply(apply_style_pax, axis=None, daily_goals_matrix=daily_goals_matrix)
-        st.dataframe(styled_df, use_container_width=True)
-
     else:
-        st.warning("No se encontraron reservas con estado 'Asignado' en los próximos 7 días.")
+        conteo_pax = pd.DataFrame(columns=['establecimiento_sede', 'fecha_formato', 'rsv', 'pax'])
+
+    # --- Asegurar que todos los establecimientos aparezcan aunque tengan 0 ---
+    todos_estabs = st.session_state.get("establecimientos_list", [])
+    if todos_estabs:
+        conteo_pax = conteo_pax.set_index("establecimiento_sede").reindex(todos_estabs, fill_value=0).reset_index()
+
+    pivot_rsv = conteo_pax.pivot_table(
+        index='establecimiento_sede',
+        columns='fecha_formato',
+        values='rsv',
+        fill_value=0
+    ).reindex(columns=formatted_dates, fill_value=0).astype(int)
+
+    pivot_pax = conteo_pax.pivot_table(
+        index='establecimiento_sede',
+        columns='fecha_formato',
+        values='pax',
+        fill_value=0
+    ).reindex(columns=formatted_dates, fill_value=0).astype(int)
+
+    daily_goals_matrix = all_goals if isinstance(all_goals, dict) else {}
+
+    combined_df = pd.concat({'RSV': pivot_rsv, 'PAX': pivot_pax}, axis=1)
+    combined_df = combined_df.swaplevel(axis=1).sort_index(axis=1)
+
+    final_df_display = combined_df.reindex(columns=pd.MultiIndex.from_product([formatted_dates, ['RSV', 'PAX']]))
+
+    st.markdown("---")
+    st.header("Tablero de Reservas Asignadas (Próximos 7 días)")
+    st.write("RSV: número de reservas | PAX: total de personas.")
+
+    styled_df = final_df_display.style.apply(apply_style_pax, axis=None, daily_goals_matrix=daily_goals_matrix)
+    st.dataframe(styled_df, use_container_width=True)
 
 def metas_page(db, app_id):
     st.header("Gestión de Metas Diarias")
