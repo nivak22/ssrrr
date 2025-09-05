@@ -63,9 +63,9 @@ def load_and_process_data(uploaded_file):
             return None
 
         df.columns = df.columns.str.strip()
-
         establishment_col = 'establishment_name'
         branch_col = 'establishment_branch_address'
+
         if establishment_col in df.columns and branch_col in df.columns:
             df['establecimiento_sede'] = df[establishment_col] + ' - ' + df[branch_col]
             new_estabs = sorted(df['establecimiento_sede'].unique())
@@ -78,15 +78,14 @@ def load_and_process_data(uploaded_file):
                 st.session_state.establecimientos_list = new_estabs
         else:
             st.warning("Las columnas 'establishment_name' o 'establishment_branch_address' no se encontraron. La gestión de metas podría no funcionar correctamente.")
-            if "establecimientos_list" not in st.session_state:
-                st.session_state.establecimientos_list = []
+
+        if "establecimientos_list" not in st.session_state:
+            st.session_state.establecimientos_list = []
 
         st.success("Archivo cargado exitosamente.")
         st.write("Vista previa de los datos cargados:")
         st.dataframe(df.head(), use_container_width=True)
-
         return df
-
     except Exception as e:
         st.error(f"Ocurrió un error al procesar el archivo. Verifica el formato. Error: {e}")
         return None
@@ -123,14 +122,12 @@ def create_dashboard(df, all_goals):
         return
 
     df['meta_reservation_date'] = pd.to_datetime(df['meta_reservation_date'], errors='coerce')
-
     today = datetime.now().date()
     date_range = [today + timedelta(days=i) for i in range(7)]
     formatted_dates = [format_date_es(d) for d in date_range]
 
     df_filtrado = df[
-        (df['status'] == 'Asignado') &
-        (df['meta_reservation_date'].dt.date.isin(date_range))
+        (df['status'] == 'Asignado') & (df['meta_reservation_date'].dt.date.isin(date_range))
     ].copy()
 
     if not df_filtrado.empty:
@@ -141,59 +138,49 @@ def create_dashboard(df, all_goals):
             rsv=('status', 'size'),
             pax=('meta_reservation_persons', 'sum')
         ).reset_index()
-    else:
-        conteo_pax = pd.DataFrame(columns=['establecimiento_sede', 'fecha_formato', 'rsv', 'pax'])
 
-    # --- 🔧 FIX: asegurar que no haya duplicados antes de reindexar ---
-    if not conteo_pax.empty:
-        conteo_pax = conteo_pax.groupby(["establecimiento_sede", "fecha_formato"], as_index=False).sum()
+        pivot_rsv = conteo_pax.pivot_table(
+            index='establecimiento_sede',
+            columns='fecha_formato',
+            values='rsv',
+            fill_value=0
+        ).reindex(columns=formatted_dates).fillna(0).astype(int)
 
-    todos_estabs = st.session_state.get("establecimientos_list", [])
-    if todos_estabs:
-        conteo_pax = (
-            conteo_pax.set_index("establecimiento_sede")
-            .groupby(level=0).sum()   # 🔧 agrupar para evitar duplicados
-            .reindex(todos_estabs, fill_value=0)
-            .reset_index()
+        pivot_pax = conteo_pax.pivot_table(
+            index='establecimiento_sede',
+            columns='fecha_formato',
+            values='pax',
+            fill_value=0
+        ).reindex(columns=formatted_dates).fillna(0).astype(int)
+
+        daily_goals_matrix = all_goals if isinstance(all_goals, dict) else {}
+
+        combined_df = pd.concat({'RSV': pivot_rsv, 'PAX': pivot_pax}, axis=1)
+        combined_df = combined_df.swaplevel(axis=1).sort_index(axis=1)
+
+        final_df_display = combined_df.reindex(
+            columns=pd.MultiIndex.from_product([formatted_dates, ['RSV', 'PAX']])
         )
 
-    pivot_rsv = conteo_pax.pivot_table(
-        index='establecimiento_sede',
-        columns='fecha_formato',
-        values='rsv',
-        fill_value=0
-    ).reindex(columns=formatted_dates, fill_value=0).astype(int)
+        st.markdown("---")
+        st.header("Tablero de Reservas Asignadas (Próximos 7 días)")
+        st.write("RSV: número de reservas | PAX: total de personas.")
 
-    pivot_pax = conteo_pax.pivot_table(
-        index='establecimiento_sede',
-        columns='fecha_formato',
-        values='pax',
-        fill_value=0
-    ).reindex(columns=formatted_dates, fill_value=0).astype(int)
-
-    daily_goals_matrix = all_goals if isinstance(all_goals, dict) else {}
-
-    combined_df = pd.concat({'RSV': pivot_rsv, 'PAX': pivot_pax}, axis=1)
-    combined_df = combined_df.swaplevel(axis=1).sort_index(axis=1)
-
-    final_df_display = combined_df.reindex(columns=pd.MultiIndex.from_product([formatted_dates, ['RSV', 'PAX']]))
-
-    st.markdown("---")
-    st.header("Tablero de Reservas Asignadas (Próximos 7 días)")
-    st.write("RSV: número de reservas | PAX: total de personas.")
-
-    styled_df = final_df_display.style.apply(apply_style_pax, axis=None, daily_goals_matrix=daily_goals_matrix)
-    st.dataframe(styled_df, use_container_width=True)
+        styled_df = final_df_display.style.apply(apply_style_pax, axis=None, daily_goals_matrix=daily_goals_matrix)
+        st.dataframe(styled_df, use_container_width=True)
+    else:
+        st.warning("No se encontraron reservas con estado 'Asignado' en los próximos 7 días.")
 
 def metas_page(db, app_id):
     st.header("Gestión de Metas Diarias")
-
     dias_semana_full = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
-    selected_day_to_edit = st.selectbox("Selecciona el día para el cual quieres establecer las metas de la semana:", dias_semana_full)
+    selected_day_to_edit = st.selectbox(
+        "Selecciona el día para el cual quieres establecer las metas de la semana:",
+        dias_semana_full
+    )
 
     goals_ref = db.collection('artifacts').document(app_id).collection('metas').document(selected_day_to_edit.lower())
     doc = goals_ref.get()
-
     current_goals = doc.to_dict() if doc.exists else {}
 
     # --- Cambio: unir establecimientos de Firebase con los de sesión ---
@@ -202,12 +189,12 @@ def metas_page(db, app_id):
     establecimientos = sorted(set(firebase_estabs) | set(session_estabs))
 
     metas_df = pd.DataFrame(index=establecimientos)
-
     for day in dias_semana_full:
         metas_df[day] = metas_df.index.to_series().apply(lambda x: current_goals.get(x, {}).get(day.lower(), 0))
 
     st.write(f"### Metas de la semana para el día: {selected_day_to_edit}")
     st.write("Edita las metas de PAX (personas) para cada establecimiento y día.")
+
     edited_df = st.data_editor(metas_df, use_container_width=True, num_rows="dynamic")
 
     if st.button("Guardar Metas"):
@@ -222,22 +209,20 @@ def metas_page(db, app_id):
 
 # --- Lógica principal ---
 st.title("Sistema de Gestión y Análisis de Reservas")
+
 page_selection = st.sidebar.radio("Navegación", ["Análisis de Reservas", "Gestión de Metas"])
 
 if page_selection == "Análisis de Reservas":
     st.header("1. Carga tu archivo de reservas")
     st.write("Carga el archivo de reservas para generar el tablero. Se admiten formatos CSV y XLSX.")
     uploaded_file = st.file_uploader("Elige un archivo", type=["csv", "xlsx"])
-
     if uploaded_file is not None:
         st.session_state.uploaded_file_name = uploaded_file.name
         st.session_state.df = load_and_process_data(uploaded_file)
-
-    if 'df' in st.session_state and st.session_state.df is not None:
-        create_dashboard(st.session_state.df, fetch_goals(app_id))
+        if 'df' in st.session_state and st.session_state.df is not None:
+            create_dashboard(st.session_state.df, fetch_goals(app_id))
     else:
         st.info("Sube un archivo para ver el tablero.")
-
 elif page_selection == "Gestión de Metas":
     if db and app_id:
         metas_page(db, app_id)
