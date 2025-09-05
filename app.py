@@ -144,10 +144,18 @@ def create_dashboard(df, all_goals):
     else:
         conteo_pax = pd.DataFrame(columns=['establecimiento_sede', 'fecha_formato', 'rsv', 'pax'])
 
-    # --- Asegurar que todos los establecimientos aparezcan aunque tengan 0 ---
+    # --- 🔧 FIX: asegurar que no haya duplicados antes de reindexar ---
+    if not conteo_pax.empty:
+        conteo_pax = conteo_pax.groupby(["establecimiento_sede", "fecha_formato"], as_index=False).sum()
+
     todos_estabs = st.session_state.get("establecimientos_list", [])
     if todos_estabs:
-        conteo_pax = conteo_pax.set_index("establecimiento_sede").reindex(todos_estabs, fill_value=0).reset_index()
+        conteo_pax = (
+            conteo_pax.set_index("establecimiento_sede")
+            .groupby(level=0).sum()   # 🔧 agrupar para evitar duplicados
+            .reindex(todos_estabs, fill_value=0)
+            .reset_index()
+        )
 
     pivot_rsv = conteo_pax.pivot_table(
         index='establecimiento_sede',
