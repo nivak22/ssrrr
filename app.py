@@ -16,19 +16,23 @@ SPANISH_MONTHS = {
 }
 
 def format_date_es(d: datetime.date) -> str:
+    """Formatea una fecha a un formato de día de la semana y mes en español."""
     day = SPANISH_DAYS[d.weekday()]
     month = SPANISH_MONTHS[d.month]
     return f"{day}, {d.day:02d} de {month}"
 
 def day_from_formatted(col_label: str) -> str:
+    """Extrae el día de la semana de una cadena formateada."""
     return col_label.split(",", 1)[0].strip().lower()
 
 def today_spanish_day() -> str:
+    """Devuelve el nombre del día de la semana actual en español."""
     return SPANISH_DAYS[datetime.now().weekday()]
 
 # --- Inicialización de Firebase ---
 @st.cache_resource
 def setup_firebase():
+    """Inicializa la conexión con Firebase Firestore."""
     if 'db' not in st.session_state:
         try:
             firebase_key_str = st.secrets["firebase_key"]
@@ -53,6 +57,7 @@ db, app_id = setup_firebase()
 
 # --- Funciones de la aplicación ---
 def load_and_process_data(uploaded_file):
+    """Carga y procesa el archivo subido, extrayendo los nombres de establecimientos."""
     try:
         if uploaded_file.name.endswith('.csv'):
             df = pd.read_csv(uploaded_file)
@@ -70,7 +75,6 @@ def load_and_process_data(uploaded_file):
             df['establecimiento_sede'] = df[establishment_col] + ' - ' + df[branch_col]
             new_estabs = sorted(df['establecimiento_sede'].unique())
 
-            # --- Cambio: unir con los existentes en lugar de sobrescribir ---
             if "establecimientos_list" in st.session_state:
                 all_estabs = set(st.session_state.establecimientos_list) | set(new_estabs)
                 st.session_state.establecimientos_list = sorted(all_estabs)
@@ -91,6 +95,7 @@ def load_and_process_data(uploaded_file):
         return None
 
 def fetch_goals(app_id):
+    """Obtiene las metas diarias desde Firebase."""
     if db is None or app_id is None:
         return {}
     current_day_name = today_spanish_day()
@@ -99,6 +104,7 @@ def fetch_goals(app_id):
     return doc.to_dict() if doc.exists else {}
 
 def apply_style_pax(df_to_style, daily_goals_matrix):
+    """Aplica estilos de color a la tabla en función de las metas de PAX."""
     styled = pd.DataFrame('', index=df_to_style.index, columns=df_to_style.columns)
     for (col_date, col_type) in df_to_style.columns:
         if col_type == 'PAX':
@@ -108,14 +114,15 @@ def apply_style_pax(df_to_style, daily_goals_matrix):
                 goal_val = daily_goals_matrix.get(idx, {}).get(day_key, 0)
                 if isinstance(pax_val, (int, float)) and isinstance(goal_val, (int, float)) and goal_val > 0:
                     if pax_val >= goal_val * 1.05:
-                        styled.loc[idx, (col_date, 'PAX')] = 'background-color: #d4edda; color: black'
+                        styled.loc[idx, (col_date, 'PAX')] = 'background-color: #d4edda; color: black'  # Verde
                     elif pax_val >= goal_val * 0.95:
-                        styled.loc[idx, (col_date, 'PAX')] = 'background-color: #fff3cd; color: black'
+                        styled.loc[idx, (col_date, 'PAX')] = 'background-color: #fff3cd; color: black'  # Amarillo
                     else:
-                        styled.loc[idx, (col_date, 'PAX')] = 'background-color: #f8d7da; color: black'
+                        styled.loc[idx, (col_date, 'PAX')] = 'background-color: #f8d7da; color: black'  # Rojo
     return styled
 
 def create_dashboard(df, all_goals):
+    """Genera y muestra el tablero de reservas con los datos del archivo cargado."""
     required_columns = ['status', 'establishment_name', 'establishment_branch_address', 'meta_reservation_date', 'meta_reservation_persons']
     if not all(col in df.columns for col in required_columns):
         st.error(f"El archivo debe contener las siguientes columnas: {', '.join(required_columns)}")
@@ -130,6 +137,13 @@ def create_dashboard(df, all_goals):
         (df['status'] == 'Asignado') & (df['meta_reservation_date'].dt.date.isin(date_range))
     ].copy()
 
+    # Obtener la lista completa de establecimientos de la sesión
+    all_establishments = st.session_state.get('establecimientos_list', [])
+    
+    # Crear DataFrames vacíos para RSV y PAX con todos los establecimientos como índice
+    pivot_rsv = pd.DataFrame(0, index=all_establishments, columns=formatted_dates)
+    pivot_pax = pd.DataFrame(0, index=all_establishments, columns=formatted_dates)
+
     if not df_filtrado.empty:
         df_filtrado['establecimiento_sede'] = df_filtrado['establishment_name'] + ' - ' + df_filtrado['establishment_branch_address']
         df_filtrado['fecha_formato'] = df_filtrado['meta_reservation_date'].dt.date.apply(format_date_es)
@@ -139,39 +153,37 @@ def create_dashboard(df, all_goals):
             pax=('meta_reservation_persons', 'sum')
         ).reset_index()
 
-        pivot_rsv = conteo_pax.pivot_table(
-            index='establecimiento_sede',
-            columns='fecha_formato',
-            values='rsv',
-            fill_value=0
-        ).reindex(columns=formatted_dates).fillna(0).astype(int)
+        # Llenar los DataFrames de RSV y PAX con los datos del archivo
+        for _, row in conteo_pax.iterrows():
+            est = row['establecimiento_sede']
+            date = row['fecha_formato']
+            rsv_val = row['rsv']
+            pax_val = row['pax']
+            if est in pivot_rsv.index and date in pivot_rsv.columns:
+                pivot_rsv.loc[est, date] = rsv_val
+            if est in pivot_pax.index and date in pivot_pax.columns:
+                pivot_pax.loc[est, date] = pax_val
+    
+    daily_goals_matrix = all_goals if isinstance(all_goals, dict) else {}
 
-        pivot_pax = conteo_pax.pivot_table(
-            index='establecimiento_sede',
-            columns='fecha_formato',
-            values='pax',
-            fill_value=0
-        ).reindex(columns=formatted_dates).fillna(0).astype(int)
+    combined_df = pd.concat({'RSV': pivot_rsv, 'PAX': pivot_pax}, axis=1)
+    combined_df = combined_df.swaplevel(axis=1).sort_index(axis=1)
 
-        daily_goals_matrix = all_goals if isinstance(all_goals, dict) else {}
+    final_df_display = combined_df.reindex(
+        columns=pd.MultiIndex.from_product([formatted_dates, ['RSV', 'PAX']])
+    )
 
-        combined_df = pd.concat({'RSV': pivot_rsv, 'PAX': pivot_pax}, axis=1)
-        combined_df = combined_df.swaplevel(axis=1).sort_index(axis=1)
+    st.markdown("---")
+    st.header("Tablero de Reservas Asignadas (Próximos 7 días)")
+    st.write("RSV: número de reservas | PAX: total de personas.")
 
-        final_df_display = combined_df.reindex(
-            columns=pd.MultiIndex.from_product([formatted_dates, ['RSV', 'PAX']])
-        )
-
-        st.markdown("---")
-        st.header("Tablero de Reservas Asignadas (Próximos 7 días)")
-        st.write("RSV: número de reservas | PAX: total de personas.")
-
-        styled_df = final_df_display.style.apply(apply_style_pax, axis=None, daily_goals_matrix=daily_goals_matrix)
-        st.dataframe(styled_df, use_container_width=True)
-    else:
-        st.warning("No se encontraron reservas con estado 'Asignado' en los próximos 7 días.")
+    styled_df = final_df_display.style.apply(apply_style_pax, axis=None, daily_goals_matrix=daily_goals_matrix)
+    st.dataframe(styled_df, use_container_width=True)
+    if final_df_display.empty:
+         st.warning("No se encontraron reservas con estado 'Asignado' en los próximos 7 días.")
 
 def metas_page(db, app_id):
+    """Muestra la página de gestión de metas diarias."""
     st.header("Gestión de Metas Diarias")
     dias_semana_full = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
     selected_day_to_edit = st.selectbox(
@@ -183,7 +195,6 @@ def metas_page(db, app_id):
     doc = goals_ref.get()
     current_goals = doc.to_dict() if doc.exists else {}
 
-    # --- Cambio: unir establecimientos de Firebase con los de sesión ---
     firebase_estabs = list(current_goals.keys())
     session_estabs = st.session_state.get("establecimientos_list", [])
     establecimientos = sorted(set(firebase_estabs) | set(session_estabs))
